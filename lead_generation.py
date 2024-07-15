@@ -1,47 +1,54 @@
 import datetime
 import os
+import requests
+import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from crewai import Agent, Task, Crew, Process
 from dotenv import load_dotenv
-load_dotenv()
 from langchain_groq import ChatGroq
+from langchain.tools import tool
+from langchain_community.document_loaders import WebBaseLoader
+
+load_dotenv()
+
 os.environ['GROQ_API_KEY'] = "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"
-os.environ['SERPER_API_KEY'] = "504ccf95a691c980101809ea30c1d1bd607345ff"
+os.environ['SERPER_API_KEY'] = os.getenv('SERPER_API_KEY')
 
 # Initialize the LLM
 llm = ChatGroq(temperature=0.2, model_name="llama3-70b-8192")
 
-#--------- Tools ---------#
-import requests
-import json
-import os
-
-from langchain.tools import tool
-from langchain_community.document_loaders import WebBaseLoader
-
 class SearchTools:
+    @staticmethod
+    def run_with_timeout(func, *args, timeout=30):
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(func, *args)
+            try:
+                return future.result(timeout=timeout)
+            except FuturesTimeoutError:
+                return f"The operation timed out after {timeout} seconds."
 
     @tool('search facebook groups')
     def search_facebook_groups(query: str) -> str:
         """
         Use this tool to search Facebook groups. This tool returns 5 results from Facebook groups.
         """
-        return SearchTools.search(f"site:facebook.com/groups {query}", limit=5)
+        return SearchTools.run_with_timeout(SearchTools.search, query, limit=5)
 
     @tool('search linkedin groups')
     def search_linkedin_groups(query: str) -> str:
         """
         Use this tool to search LinkedIn groups. This tool returns 5 results from LinkedIn groups.
         """
-        return SearchTools.search(f"site:linkedin.com/groups {query}", limit=2)
+        return SearchTools.run_with_timeout(SearchTools.search, query, limit=5)
 
     @tool('open page')
     def open_page(url: str) -> str:
         """
         Use this tool to open a webpage and get the content.
         """
-        loader = WebBaseLoader(url)
-        return loader.load()
+        return SearchTools.run_with_timeout(lambda: WebBaseLoader(url).load())
 
+    @staticmethod
     def search(query, limit=5):
         url = "https://google.serper.dev/search"
         payload = json.dumps({
@@ -52,16 +59,31 @@ class SearchTools:
             'X-API-KEY': os.getenv("SERPER_API_KEY"),
             'Content-Type': 'application/json'
         }
-        response = requests.request("POST", url, headers=headers, data=payload)
-        results = response.json()['organic']
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.request("POST", url, headers=headers, data=payload, timeout=25)
+                response.raise_for_status()
+                results = response.json().get('organic', [])
 
-        string = []
-        for result in results:
-            string.append(f"{result['title']}\n{result['snippet']}\n{result['link']}\n\n")
+                if not results:
+                    return "No results found."
 
-        return f"Search results for '{query}':\n\n" + "\n".join(string)
+                string = []
+                for result in results:
+                    string.append(f"{result['title']}\n{result['snippet']}\n{result['link']}\n\n")
 
-#--------- Defining Agents ---------#
+                return f"Search results for '{query}':\n\n" + "\n".join(string)
+            except requests.Timeout:
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                return "The request timed out. Moving on to the next task."
+            except requests.RequestException as e:
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                return f"An error occurred: {str(e)}. Moving on to the next task."
+            except Exception as e:
+                return f"An unexpected error occurred: {str(e)}. Moving on to the next task."
 
 # Define the Lead Generation Agent for Facebook
 facebook_lead_generator = Agent(
@@ -87,8 +109,7 @@ linkedin_lead_generator = Agent(
     allow_delegation=True
 )
 
-#---------- Defining Task ----------#
-
+# Define the lead generation tasks
 lead_generation_task = Task(
     description="""Identify and list potential leads from Facebook and LinkedIn groups relevant to the product or business. Focus on finding groups and connections where potential customers or business partners might be active. 
 
@@ -129,7 +150,7 @@ crew = Crew(
 
 inputs = {
     'current_date': '2024/05/22',
-    'business_description': 'Selling eco-friendly electronic products and services',
+    'business_description': 'selling and buying e-waste for recycling',
 }
 
 result = crew.kickoff(inputs=inputs)

@@ -4,11 +4,11 @@ from crewai import Agent, Task, Crew, Process
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_groq import ChatGroq
-os.environ['GROQ_API_KEY'] = "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"
+os.environ['GROQ_API_KEY'] = "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"
 os.environ['SERPER_API_KEY'] = os.getenv('SERPER_API_KEY')
 
 # Initialize the LLM
-llm = ChatGroq(temperature=0.2, model_name="mixtral-8x7b-32768")
+llm = ChatGroq(temperature=0.2, model_name="llama3-70b-8192")
 
 #--------- Tools ---------#
 import requests
@@ -79,6 +79,8 @@ market_researcher = Agent(
         SearchTools.open_page,
     ],
     llm = llm,
+    max_iter=7,
+    max_rpm = 5000,
     allow_delegation=True
 )
 
@@ -91,6 +93,8 @@ content_strategist = Agent(
         "Your expertise in aligning content with brand voice and audience interests has consistently driven engagement and growth."
     ),
     tools=[],
+    max_iter=7,
+    max_rpm = 5000,
     llm = llm,
     allow_delegation=True
 )
@@ -104,6 +108,8 @@ visual_creator = Agent(
         "Your descriptions are more than just images; they tell stories, evoke emotions, and capture the essence of the brand, setting the visual tone for the Instagram feed."
     ),
     tools=[],
+    max_iter=7,
+    max_rpm = 5000,
     llm = llm,
     allow_delegation=False
 )
@@ -118,6 +124,8 @@ copywriter = Agent(
     ),
     tools=[],
     llm = llm,
+    max_iter=7,
+    max_rpm = 5000,
     allow_delegation=True
 )
 
@@ -133,10 +141,9 @@ market_research = Task(
     Description of the instagram account for which you are doing this research: 
     <INSTAGRAM_ACCOUNT_DESCRIPTION>{instagram_description}</INSTAGRAM_ACCOUNT_DESCRIPTION>
 
-    Find the most relevant topics, hashtags and trends to use the the posts for next week. The focus of the following week is the following: 
-    <NEXT_WEEK_CONTENT>{topic_of_the_week}</NEXT_WEEK_CONTENT>
+    Based on your research, determine and suggest the most relevant topics, hashtags and trends to use in the posts for next week.
 """,
-  expected_output='A report with the most relevant information that you found, including relevant hashtags for this weeks content and all other information that could be useful to the team working on content creation.',
+  expected_output='A report with the most relevant information that you found, including relevant hashtags for this week\'s content, suggested focus for next week, and all other information that could be useful to the team working on content creation.',
   tools=[],
   agent=market_researcher,
   output_file = "market_research.md",
@@ -145,8 +152,15 @@ market_research = Task(
 
 
 content_strategy= Task(
-  description="Based on the market research findings, develop a comprehensive content calendar for a week. The calendar should specify the theme for each day of the week (from Monday to Sunday) where some content should be posted, and preliminary ideas for post content. For now, focus on a three-day content calendar, including the most relevant keywords and hashtags to use in each post.",
-  expected_output='A detailed week-long content calendar, formatted as markdown, that includes days of the week (from monday to friday), a brief overview of content ideas, and the most relevant keywords and hashtags to use in each post. Ensure the calendar aligns with the identified trends and audience preferences.',
+  description="""Based on the market research findings, develop a detailed schedule for posting Instagram posts over the next three days. The schedule should include the theme for each day, detailed content ideas, and the most relevant hashtags to use for each post. Focus on what will improve customer engagement, including optimal posting times and strategies to increase interaction.
+
+    The schedule should cover:
+    - Themes and post ideas for each day
+    - Detailed description of content (including visuals and text)
+    - Best hashtags to use for each post
+    - Suggested posting times
+""",
+  expected_output='A detailed schedule formatted as markdown, covering the next three days. Each day should include the theme, content ideas, hashtags, and suggested posting times to improve engagement.',
   tools=[],
   agent=content_strategist,
 )
@@ -195,10 +209,8 @@ crew=Crew(
 )
 inputs = {
     'current_date': '2024/05/22',
-    'instagram_description': 'Electronic waste',
-    'topic_of_the_week': 'awareness about correct disposal of E-waste'
+    'instagram_description': 'Electronic waste'
 }
 
-
-result = crew.kickoff(inputs = inputs)
+result = crew.kickoff(inputs=inputs)
 print(result)

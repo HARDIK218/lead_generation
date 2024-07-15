@@ -2,37 +2,54 @@ import datetime
 import os
 import requests
 import json
+from concurrent.futures import ThreadPoolExecutor
 from crewai import Agent, Task, Crew, Process
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langchain_community.document_loaders import WebBaseLoader
 
+# Load environment variables
 load_dotenv()
 
+# Set API keys
 os.environ['GROQ_API_KEY'] = "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"
 os.environ['SERPER_API_KEY'] = os.getenv('SERPER_API_KEY')
 
 # Initialize the LLM
-llm = ChatGroq(temperature=0.2, model_name="mixtral-8x7b-32768")
+llm = ChatGroq(temperature=0.2, model_name="llama3-70b-8192")
 
-class SearchTools:
+class LeadSearchTools:
 
-    @tool('search facebook groups')
+    @tool('search_facebook_groups')
     def search_facebook_groups(query: str) -> str:
         """
         Use this tool to search Facebook groups. This tool returns 5 results from Facebook groups.
         """
-        return SearchTools.search(f"site:facebook.com/groups {query}", limit=5)
+        return LeadSearchTools.search(f"site:facebook.com/groups {query}", limit=5)
 
-    @tool('search linkedin groups')
-    def search_linkedin_groups(query: str) -> str:
+    @tool('search_twitter')
+    def search_twitter(query: str) -> str:
         """
-        Use this tool to search LinkedIn groups. This tool returns 5 results from LinkedIn groups.
+        Use this tool to search Twitter. This tool returns 5 results from Twitter.
         """
-        return SearchTools.search(f"site:linkedin.com/groups {query}", limit=5)
+        return LeadSearchTools.search(f"site:twitter.com {query}", limit=5)
 
-    @tool('open page')
+    @tool('search_news')
+    def search_news(query: str) -> str:
+        """
+        Use this tool to search news articles. This tool returns 5 results from news sources.
+        """
+        return LeadSearchTools.search(f"site:news.google.com {query}", limit=5)
+
+    @tool('search_reddit')
+    def search_reddit(query: str) -> str:
+        """
+        Use this tool to search Reddit. This tool returns 5 results from Reddit.
+        """
+        return LeadSearchTools.search(f"site:reddit.com {query}", limit=5)
+
+    @tool('open_page')
     def open_page(url: str) -> str:
         """
         Use this tool to open a webpage and get the content.
@@ -68,33 +85,27 @@ class SearchTools:
         except requests.RequestException as e:
             return f"An error occurred: {str(e)}"
 
-# Define the Lead Generation Agent for Facebook
-facebook_lead_generator = Agent(
-    role='Facebook Lead Generator',
-    goal='Identify and list potential leads from Facebook groups that are relevant to the product or business. Focus on finding groups where potential customers or business partners might be active.',
+# Define the Lead Generation Agent
+lead_generator = Agent(
+    role='Lead Generator',
+    goal='Identify and list potential leads from various online sources relevant to the product or business. Focus on finding groups and connections where potential customers or business partners might be active.',
     backstory=(
-        "With an understanding of social networks and group dynamics, you excel at identifying potential leads within Facebook groups. Your ability to pinpoint active and relevant groups makes you a valuable asset for generating business connections and leads."
+        "With expertise in social and professional networks, you excel at identifying potential leads within various online sources. Your ability to find relevant buyers and partners makes you invaluable for generating business leads."
     ),
-    tools=[SearchTools.search_facebook_groups, SearchTools.open_page],
+    tools=[
+        LeadSearchTools.search_facebook_groups,
+        LeadSearchTools.search_twitter,
+        LeadSearchTools.search_news,
+        LeadSearchTools.search_reddit,
+        LeadSearchTools.open_page
+    ],
     llm=llm,
     allow_delegation=True
 )
 
-# Define the Lead Generation Agent for LinkedIn
-linkedin_lead_generator = Agent(
-    role='LinkedIn Lead Generator',
-    goal='Identify and list potential leads from LinkedIn groups and connections that are relevant to the product or business. Focus on finding groups and connections where potential customers or business partners might be active.',
-    backstory=(
-        "With a strong grasp of professional networking, you excel at identifying potential leads within LinkedIn groups and connections. Your expertise in navigating LinkedIn to find relevant contacts makes you essential for generating business leads."
-    ),
-    tools=[SearchTools.search_linkedin_groups, SearchTools.open_page],
-    llm=llm,
-    allow_delegation=True
-)
-
-# Define the lead generation tasks
+# Define the lead generation task
 lead_generation_task = Task(
-    description="""Identify and list potential leads from Facebook and LinkedIn groups relevant to the product or business. Focus on finding groups and connections where potential customers or business partners might be active. 
+    description="""Identify and list potential leads from various online sources relevant to the product or business. Focus on finding groups and connections where potential customers or business partners might be active. 
 
     Current date: {current_date}
 
@@ -105,36 +116,23 @@ lead_generation_task = Task(
 """,
     expected_output='A report with the most relevant leads that you found, including links to groups and profiles, and any other information that could be useful for the sales team.',
     tools=[],
-    agent=facebook_lead_generator,
-    output_file="facebook_leads.md",
+    agent=lead_generator,
+    output_file="leads_report.md",
 )
 
-lead_generation_task_linkedin = Task(
-    description="""Identify and list potential leads from LinkedIn groups and connections relevant to the product or business. Focus on finding groups and connections where potential customers or business partners might be active. 
-
-    Current date: {current_date}
-
-    Description of the product or business for which you are doing this research: 
-    <BUSINESS_DESCRIPTION>{business_description}</BUSINESS_DESCRIPTION>
-
-    Find the most relevant groups and connections for generating business leads.
-""",
-    expected_output='A report with the most relevant leads that you found, including links to groups and profiles, and any other information that could be useful for the sales team.',
-    tools=[],
-    agent=linkedin_lead_generator,
-    output_file="linkedin_leads.md",
-)
-
+# Initialize and run the crew with the lead generation task
 crew = Crew(
-    agents=[facebook_lead_generator, linkedin_lead_generator],
-    tasks=[lead_generation_task, lead_generation_task_linkedin],
+    agents=[lead_generator],
+    tasks=[lead_generation_task],
     process=Process.sequential,
 )
 
+# Input parameters
 inputs = {
-    'current_date': '2024/05/22',
-    'business_description': 'selling and buying e-waste for recycling',
+    'current_date': '2024/07/14',
+    'business_description': 'e-waste recycling in india',
 }
 
+# Kickoff the lead generation process
 result = crew.kickoff(inputs=inputs)
 print(result)
